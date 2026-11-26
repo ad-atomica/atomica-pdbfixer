@@ -1,0 +1,35 @@
+[tools]
+ruff = "0.17.6"
+ty = "0.0.110"
+uv = "0.13.10"
+
+[tasks.setup]
+description = "Install the checkout and development dependencies in a local Python 3.12 environment"
+run = [
+    "uv venv --python 3.12 --managed-python --allow-existing .venv",
+    "uv pip install --python .venv --editable . pytest setuptools",
+]
+
+[tasks.test]
+description = "Run the PDBFixer test suite"
+run = "uv run --no-project --python .venv python -m pytest -vs pdbfixer"
+
+[tasks.format]
+description = "Format Python files with Ruff"
+run = "ruff format ."
+
+[tasks.lint]
+description = "Lint Python files with Ruff"
+run = "ruff check ."
+
+[tasks.typecheck]
+description = "Type-check Python files with ty"
+run = "ty check --python .venv"
+
+[tasks.fix]
+description = "Apply Ruff lint fixes and format Python files"
+run = ["mise run lint --fix", "mise run format"]
+
+[tasks.check]
+description = "Check Python formatting, lint, and types"
+run = ["mise run format --check", "mise run lint", "mise run typecheck --error-on-warning"]

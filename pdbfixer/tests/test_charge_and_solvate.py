@@ -1,6 +1,7 @@
-import pytest
-from pdbfixer import PDBFixer
 import openmm.unit
+import pytest
+
+from pdbfixer import PDBFixer
 
 
 @pytest.mark.parametrize(
@@ -32,9 +33,7 @@ def test_charge_and_solvate(pdbCode, soluteCharge):
 
     chainLengths = [len([*chain.residues()]) for chain in fixer.topology.chains()]
     for chainidx, residx in list(fixer.missingResidues):
-        if residx == 0:
-            fixer.missingResidues[chainidx, residx] = ["GLY"]
-        elif residx == chainLengths[chainidx]:
+        if residx == 0 or residx == chainLengths[chainidx]:
             fixer.missingResidues[chainidx, residx] = ["GLY"]
 
     fixer.findMissingAtoms()

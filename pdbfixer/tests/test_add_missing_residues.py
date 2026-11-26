@@ -1,4 +1,5 @@
 import io
+
 import pdbfixer
 
 # SEQRES starts two residues before the first resolved residue (ALA 1), so the
@@ -21,11 +22,12 @@ TER      13      GLU A   3
 END
 """
 
+
 def test_negative_residue_ids():
     fixer = pdbfixer.PDBFixer(pdbfile=io.StringIO(PDB))
     fixer.findMissingResidues()
-    assert fixer.missingResidues == {(0, 0): ['MET', 'GLY']}
+    assert fixer.missingResidues == {(0, 0): ["MET", "GLY"]}
     fixer.findMissingAtoms()
     fixer.addMissingAtoms(seed=0)
     ids = [residue.id for residue in fixer.topology.residues()]
-    assert ids == ['-1', '0', '1', '2', '3']
+    assert ids == ["-1", "0", "1", "2", "3"]

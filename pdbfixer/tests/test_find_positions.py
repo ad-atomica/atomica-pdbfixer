@@ -7,11 +7,17 @@ import pdbfixer
 
 def test_findOXTPosition():
     """Test that OXT is added at the correct position."""
-    fixer = pdbfixer.PDBFixer(filename=(Path(__file__).parent / "data" / "1BHL.pdb").as_posix())
+    fixer = pdbfixer.PDBFixer(
+        filename=(Path(__file__).parent / "data" / "1BHL.pdb").as_posix()
+    )
 
     # Record the original position of OXT, then delete it.
 
-    originalPos = [pos for pos, atom in zip(fixer.positions, fixer.topology.atoms()) if atom.name == "OXT"]
+    originalPos = [
+        pos
+        for pos, atom in zip(fixer.positions, fixer.topology.atoms())
+        if atom.name == "OXT"
+    ]
     modeller = app.Modeller(fixer.topology, fixer.positions)
     modeller.delete([atom for atom in modeller.topology.atoms() if atom.name == "OXT"])
     fixer.topology = modeller.topology
@@ -22,5 +28,9 @@ def test_findOXTPosition():
     fixer.missingResidues = {}
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
-    newPos = [pos for pos, atom in zip(fixer.positions, fixer.topology.atoms()) if atom.name == "OXT"]
+    newPos = [
+        pos
+        for pos, atom in zip(fixer.positions, fixer.topology.atoms())
+        if atom.name == "OXT"
+    ]
     assert unit.norm(newPos[0] - originalPos[0]) < 0.01 * unit.nanometer

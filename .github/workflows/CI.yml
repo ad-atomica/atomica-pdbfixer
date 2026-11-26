@@ -3,34 +3,25 @@ name: PDBFixer Continuous Integration Workflow
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
+      - main
 
 jobs:
   build_test:
+    name: Python CI
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
-
     steps:
-      - uses: actions/checkout@v2
-        name: "Checkout the source code"
-
-      - uses: conda-incubator/setup-miniconda@v4
-        name: "Prepare base dependencies"
-        with:
-          miniforge-version: latest
-          python-version: ${{ matrix.python-version }}
-          activate-environment: pdbfixer-dev
-          environment-file: devtools/environment-dev.yaml
-
-      - name: "Install PDBFixer"
-        shell: bash -l {0}
-        run: |
-          which python
-          python -V
-          pip install -e .
-          pytest -vs pdbfixer
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - name: Set up Python environment
+        run: mise run setup
+      - name: Check Python formatting
+        run: mise run format --check
+      - name: Lint Python
+        run: mise run lint
+      - name: Check formatting, lint, and types
+        run: mise run check
+      - name: Run tests
+        run: mise run test

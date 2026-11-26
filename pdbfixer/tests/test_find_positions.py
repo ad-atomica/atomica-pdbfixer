@@ -2,10 +2,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from openmm import Vec3, app, unit
+from openmm import Platform, Vec3, app, unit
 
 import pdbfixer
-from pdbfixer.pdbfixer import _overlayPoints
+from pdbfixer.pdbfixer import Template, _overlayPoints
 
 
 def _rotation(axis, angle):
@@ -39,11 +39,15 @@ def test_overlayPointsRecoversRotation(mirror):
     assert np.allclose(center1, offset)
 
 
-def _alanineHandedness(fixer):
-    """Return the handedness (+1 or -1) of every alanine's alpha carbon, in residue order."""
-    positions = fixer.positions.value_in_unit(unit.nanometer)
+def _alanineHandedness(topology, positions):
+    """Return the sign of each alanine's chiral volume, in residue order.
+
+    The chirality report runs this file against a revision without pdbfixer._chirality, so this
+    computes the volume itself instead of importing normalizedChiralVolume().
+    """
+    positions = positions.value_in_unit(unit.nanometer)
     handedness = []
-    for residue in fixer.topology.residues():
+    for residue in topology.residues():
         if residue.name == "ALA":
             pos = {atom.name: positions[atom.index] for atom in residue.atoms()}
             toN = pos["N"] - pos["CA"]
@@ -92,7 +96,7 @@ def test_addedCBChirality():
 
     # Record the handedness of every alanine, then delete its CB.
 
-    originalHandedness = _alanineHandedness(fixer)
+    originalHandedness = _alanineHandedness(fixer.topology, fixer.positions)
     assert len(originalHandedness) > 0
     modeller = app.Modeller(fixer.topology, fixer.positions)
     modeller.delete(
@@ -111,4 +115,60 @@ def test_addedCBChirality():
     fixer.missingResidues = {}
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
-    assert _alanineHandedness(fixer) == originalHandedness
+    assert _alanineHandedness(fixer.topology, fixer.positions) == originalHandedness
+
+
+def _mirror(positions):
+    return [
+        Vec3(x, y, -z) for x, y, z in positions.value_in_unit(unit.nanometer)
+    ] * unit.nanometer
+
+
+def _registeredMirrorFixer(**kwargs):
+    """Return a PDBFixer with a mirrored alanine template registered."""
+    fixer = pdbfixer.PDBFixer(**kwargs)
+    template = fixer.templates["ALA"]
+    fixer.registerTemplate(template.topology, _mirror(template.positions))
+    return fixer
+
+
+class _MirrorLookupFixer(pdbfixer.PDBFixer):
+    """Supplies a mirrored alanine template only through _getTemplate(), as a subclass can."""
+
+    def _getTemplate(self, name):
+        template = super()._getTemplate(name)
+        if name != "ALA" or template is None:
+            return template
+        return Template(template.topology, _mirror(template.positions))
+
+
+@pytest.mark.parametrize(
+    "makeFixer, expectedSign",
+    [
+        pytest.param(pdbfixer.PDBFixer, 1, id="standard"),
+        pytest.param(_registeredMirrorFixer, -1, id="mirrored"),
+        pytest.param(_MirrorLookupFixer, -1, id="lookup"),
+    ],
+)
+def test_chiralityDuringMinimization(makeFixer, expectedSign):
+    """A rebuilt center follows the selected template through placement and relaxation."""
+    fixer = makeFixer(
+        filename=(Path(__file__).parent / "data" / "alanine-dipeptide.pdb").as_posix(),
+        platform=Platform.getPlatformByName("Reference"),
+    )
+    retained = _alanineHandedness(fixer.topology, fixer.positions)
+    template = fixer._getTemplate("ALA")
+    assert template is not None
+    assert _alanineHandedness(template.topology, template.positions) == [expectedSign]
+
+    # Insert an alanine between the acetyl cap and the existing alanine, so the rebuilt center comes first.
+
+    expected = [expectedSign] + retained
+    fixer.missingResidues = {(0, 1): ["ALA"]}
+    fixer.findMissingAtoms()
+    topology, positions, _, _ = fixer._addAtomsToTopology(
+        heavyAtomsOnly=True, omitUnknownMolecules=True
+    )
+    assert _alanineHandedness(topology, positions) == expected
+    fixer.addMissingAtoms(seed=1)
+    assert _alanineHandedness(fixer.topology, fixer.positions) == expected

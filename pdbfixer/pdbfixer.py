@@ -54,6 +54,8 @@ from openmm.app.internal.compiled import matchResidueToTemplate as matchResidue
 from openmm.app.internal.pdbstructure import PdbStructure
 from openmm.app.internal.pdbx.reader.PdbxReader import PdbxReader
 
+from . import _chirality
+
 substitutions = {
     "2AS": "ASP",
     "3AH": "HIS",
@@ -1628,6 +1630,9 @@ class PDBFixer:
         Notes
         -----
         You must already have called findMissingAtoms() to have identified atoms to be added.
+        During relaxation, rebuilt alpha-carbon centers are restrained to their template handedness.
+        A warning names each restrained center whose final handedness does not match its template,
+        including one left with zero signed volume.
 
         Examples
         --------
@@ -1692,6 +1697,12 @@ class PDBFixer:
                 [atom.index for atom in newAtoms], range(system.getNumParticles())
             )
 
+            # Keep rebuilt centers from relaxing into the mirror image of their templates.
+
+            chiralCenters = _chirality.addChiralityRestraints(
+                system, newAtoms, self._getTemplate
+            )
+
             # Do an energy minimization.
 
             integrator = mm.LangevinIntegrator(
@@ -1741,6 +1752,12 @@ class PDBFixer:
                     context.setParameter("C", 1.0)
                     mm.LocalEnergyMinimizer.minimize(context)
                     state = context.getState(getPositions=True)
+
+            # Report any rebuilt center whose final handedness differs from its template.
+
+            _chirality.warnAboutChirality(
+                chiralCenters, state.getPositions(), stacklevel=2
+            )
 
             # Now create a new Topology, including all atoms from the original one and adding the missing atoms.
 

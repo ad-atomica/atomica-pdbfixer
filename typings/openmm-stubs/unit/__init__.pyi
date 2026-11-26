@@ -28,3 +28,4 @@ angstroms: Unit
 kelvin: Unit
 molar: Unit
 kilocalories_per_mole: Unit
+kilojoules_per_mole: Unit

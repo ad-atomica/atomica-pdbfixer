@@ -788,7 +788,9 @@ class PDBFixer:
         self.registerTemplate(topology, positions, terminal)
         return True
 
-    def _addAtomsToTopology(self, heavyAtomsOnly, omitUnknownMolecules):
+    def _addAtomsToTopology(
+        self, heavyAtomsOnly, omitUnknownMolecules, newAtomsBySite=None
+    ):
         """Create a new Topology in which missing atoms have been added.
 
         Parameters
@@ -796,7 +798,10 @@ class PDBFixer:
         heavyAtomsOnly : bool
             If True, only heavy atoms will be added to the topology.
         omitUnknownMolecules : bool
-            If True, unknown molecules will be omitted from the topology.
+            If True, include only chains with a template for an observed or scheduled residue.
+        newAtomsBySite : dict, optional
+            Populate this mapping from each new atom's source chain index, residue
+            index within the rebuilt chain, name, and occurrence to the new atom.
 
         Returns
         -------
@@ -821,11 +826,25 @@ class PDBFixer:
             self._computeResidueCenter(res).value_in_unit(unit.nanometers)
             for res in self.topology.residues()
         ] * unit.nanometers
+        chainsWithTemplatedInsertions = set()
+        if omitUnknownMolecules:
+            chainsWithTemplatedInsertions = {
+                chainIndex
+                for (chainIndex, _), names in self.missingResidues.items()
+                if any(self._getTemplate(name) is not None for name in names)
+            }
         for chain in self.topology.chains():
-            if omitUnknownMolecules and all(
-                self._getTemplate(residue.name) is None for residue in chain.residues()
+            if (
+                omitUnknownMolecules
+                and chain.index not in chainsWithTemplatedInsertions
+                and all(
+                    self._getTemplate(residue.name) is None
+                    for residue in chain.residues()
+                )
             ):
                 continue
+            firstResidue = newTopology.getNumResidues()
+            firstNewAtom = len(newAtoms)
             chainResidues = list(chain.residues())
             newChain = newTopology.addChain(chain.id)
             for indexInChain, residue in enumerate(chain.residues()):
@@ -1010,6 +1029,14 @@ class PDBFixer:
                         newPositions.append(
                             (atomPositions["O"] - 2 * v) * unit.nanometer
                         )
+
+            if newAtomsBySite is not None:
+                # Both builds use the source chain and the same residue order within it.
+                occurrences = defaultdict(int)
+                for atom in newAtoms[firstNewAtom:]:
+                    site = (chain.index, atom.residue.index - firstResidue, atom.name)
+                    newAtomsBySite[(*site, occurrences[site])] = atom
+                    occurrences[site] += 1
         newTopology.setUnitCellDimensions(self.topology.getUnitCellDimensions())
         newTopology.createStandardBonds()
         newTopology.createDisulfideBonds(newPositions)
@@ -1648,8 +1675,9 @@ class PDBFixer:
 
         # Create a Topology that 1) adds missing atoms, 2) removes all hydrogens, and 3) removes unknown molecules.
 
+        relaxedAtomsBySite = {}
         (newTopology, newPositions, newAtoms, existingAtomMap) = (
-            self._addAtomsToTopology(True, True)
+            self._addAtomsToTopology(True, True, relaxedAtomsBySite)
         )
         if len(newAtoms) == 0:
             # No atoms were added, but new bonds might have been created.
@@ -1755,20 +1783,24 @@ class PDBFixer:
 
             # Report any rebuilt center whose final handedness differs from its template.
 
+            minimizedPositions = state.getPositions()
             _chirality.warnAboutChirality(
-                chiralCenters, state.getPositions(), stacklevel=2
+                chiralCenters, minimizedPositions, stacklevel=2
             )
 
             # Now create a new Topology, including all atoms from the original one and adding the missing atoms.
 
-            (newTopology2, newPositions2, newAtoms2, _existingAtomMap2) = (
-                self._addAtomsToTopology(False, False)
+            outputAtomsBySite = {}
+            (newTopology2, newPositions2, _, _) = self._addAtomsToTopology(
+                False, False, outputAtomsBySite
             )
 
             # Copy over the minimized positions for the new atoms.
 
-            for a1, a2 in zip(newAtoms, newAtoms2):
-                newPositions2[a2.index] = state.getPositions()[a1.index]
+            for site, atom in relaxedAtomsBySite.items():
+                newPositions2[outputAtomsBySite[site].index] = minimizedPositions[
+                    atom.index
+                ]
             self.topology = newTopology2
             self.positions = newPositions2
 
